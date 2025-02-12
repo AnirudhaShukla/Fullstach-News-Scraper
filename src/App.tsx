@@ -35,7 +35,7 @@ function App() {
         .map((k) => k.trim())
         .filter((k) => k);
 
-      const response = await fetch("http://localhost:8000/api/search", {
+      const response = await fetch("https://fullstach-news-scraper.onrender.com/api/search", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
