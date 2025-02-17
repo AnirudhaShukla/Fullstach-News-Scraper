@@ -2,16 +2,17 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List
+import json
 import requests
-import time
 from bs4 import BeautifulSoup
+import pandas as pd
 
 app = FastAPI()
 
 # Enable CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Replace with your frontend URL in production
+    allow_origins=["*"],  # In production, replace with your frontend URL
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -21,56 +22,47 @@ class SearchRequest(BaseModel):
     keywords: List[str]
     domains: List[str]
 
-# Rotating User-Agent Headers
-USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/101.0.4951.54 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.5615.137 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36"
-]
-
-def get_news_data(keywords, allowed_domains):
+def getNewsData(keywords, allowed_domains):
+    headers = {
+        "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/101.0.4951.54 Safari/537.36"
+    }
     all_news_results = []
-    
+
     for keyword in keywords:
-        # Using Google News RSS instead of scraping
-        google_news_rss_url = f"https://news.google.com/rss/search?q={keyword.replace(' ', '%20')}&hl=en-US&gl=US&ceid=US:en"
+        google_url = f"https://www.google.com/search?q={keyword.replace(' ', '+')}&gl=us&tbm=nws&num=100"
+        bing_url = f"https://www.bing.com/news/search?q={keyword.replace(' ', '+')}"
 
-        try:
-            headers = {"User-Agent": USER_AGENTS[len(all_news_results) % len(USER_AGENTS)]}
-            response = requests.get(google_news_rss_url, headers=headers, timeout=10)
-            response.raise_for_status()
+        for search_url in [google_url, bing_url]:
+            try:
+                response = requests.get(search_url, headers=headers, timeout=10)
+                response.raise_for_status()
+                soup = BeautifulSoup(response.content, "html.parser")
 
-            soup = BeautifulSoup(response.content, "xml")  # Parse RSS feed
-            items = soup.find_all("item")
-
-            for item in items:
-                title = item.title.text
-                link = item.link.text
-                source = item.source.text if item.source else "Unknown"
-                date = item.pubDate.text if item.pubDate else "No Date"
-
-                if any(domain in link for domain in allowed_domains):
-                    all_news_results.append(
-                        {
-                            "keyword": keyword,
-                            "link": link,
-                            "title": title,
-                            "snippet": "No Snippet (RSS Feed)",
-                            "date": date,
-                            "source": source,
-                        }
-                    )
-
-        except requests.exceptions.RequestException as e:
-            print(f"Error fetching from {google_news_rss_url}: {str(e)}")
-            time.sleep(5)  # Exponential backoff
+                for el in soup.select("div.SoaBEf"):
+                    link = el.find("a")["href"]
+                    source = el.select_one(".NUnG9d span").get_text() if el.select_one(".NUnG9d span") else "Unknown"
+                    if any(domain in link for domain in allowed_domains):
+                        all_news_results.append(
+                            {
+                                "keyword": keyword,
+                                "link": link,
+                                "title": el.select_one("div.MBeuO").get_text() if el.select_one("div.MBeuO") else "No Title",
+                                "snippet": el.select_one(".GI74Re").get_text() if el.select_one(".GI74Re") else "No Snippet",
+                                "date": el.select_one(".LfVVr").get_text() if el.select_one(".LfVVr") else "No Date",
+                                "source": source
+                            }
+                        )
+            except Exception as e:
+                print(f"Error fetching from {search_url}: {str(e)}")
+                continue
 
     return all_news_results
 
 @app.post("/api/search")
 async def search_news(request: SearchRequest):
     try:
-        results = get_news_data(request.keywords, request.domains)
+        results = getNewsData(request.keywords, request.domains)
         return {"results": results}
     except Exception as e:
         return {"error": str(e)}, 500
