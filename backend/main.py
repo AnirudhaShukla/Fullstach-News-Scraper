@@ -30,7 +30,7 @@ def getNewsData(keywords, allowed_domains):
     all_news_results = []
 
     for keyword in keywords:
-        google_url = f"https://www.google.com/search?q={keyword.replace(' ', '+')}&gl=us&tbm=nws&num=100"
+        google_url = f"https://www.google.com/search?q={keyword.replace(' ', '+')}&gl=us&tbm=nws&num=20"
         bing_url = f"https://www.bing.com/news/search?q={keyword.replace(' ', '+')}"
 
         for search_url in [google_url, bing_url]:
